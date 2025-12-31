@@ -1,0 +1,3 @@
+topology Top {
+    # Minimal topology
+}
