@@ -9,3 +9,7 @@ component Stage9MotorBridge {
         input setRPM: I32;
     }
 }
+
+  @ Simple connectivity test command
+  async command PING()
+
