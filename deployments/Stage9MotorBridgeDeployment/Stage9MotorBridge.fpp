@@ -13,3 +13,7 @@ component Stage9MotorBridge {
   @ Simple connectivity test command
   async command PING()
 
+
+  @ PING command received
+  event PingReceived severity ACTIVITY_LOW
+
