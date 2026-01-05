@@ -1,2 +1,34 @@
-fprime-3.1.0/
-fprime-3.1.0/
+# =========================
+# F´ / Stage9MotorBridge Ignore Rules
+# =========================
+
+# Ignore build artifacts
+Projects/Stage9Project/build-fprime-automatic-*
+Projects/Stage9Project/logs/*
+*.o
+*.obj
+*.so
+*.a
+*.dll
+*.dylib
+*.exe
+
+# Python virtual environments
+fprime-venv-*/
+
+# Temporary editor files
+*~
+*.swp
+*.swo
+*.bak
+*.tmp
+
+# Julia temporary files
+*.jl.cov
+*.ji
+*.jlso
+*.jlcache
+
+# Ignore OS-specific files
+.DS_Store
+Thumbs.db
