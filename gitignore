@@ -1,0 +1,10 @@
+# Ignore Python virtualenvs
+fprime-venv-*/
+
+# Ignore F' build directories
+build-fprime-automatic-*/
+build-artifacts/
+
+# Ignore OS files
+*.swp
+*.DS_Store
