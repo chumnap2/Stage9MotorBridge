@@ -1,0 +1,111 @@
+#!/bin/bash
+# =====================================================
+# Stage9MotorBridge F´ v3.1.0 Build & GDS Launcher
+# =====================================================
+
+set -euo pipefail
+IFS=$'\n\t'
+
+echo "🚀 Starting Stage9MotorBridge Deployment Setup"
+
+# -------------------------
+# Paths
+# -------------------------
+BASE_DIR=~/fprime-motorbridge
+PROJECT_DIR="$BASE_DIR/Projects/Stage9Project"
+DEPLOY_DIR="$PROJECT_DIR/Deployments/Stage9MotorBridgeDeployment"
+DEPLOY_FPP="$DEPLOY_DIR/Stage9MotorBridgeDeployment.fpp"
+TOPO_DIR="$PROJECT_DIR/Topologies"
+TOPO_FILE="$TOPO_DIR/Stage9MotorBridgeTopology.fpp"
+TOOLCHAIN_DIR="$BASE_DIR/fprime-3.1.0/cmake/toolchain"
+
+# -------------------------
+# Activate virtualenv
+# -------------------------
+source "$BASE_DIR/fprime-venv-310/bin/activate"
+echo "✅ Virtualenv activated"
+
+# -------------------------
+# Clean old builds
+# -------------------------
+echo "🧹 Cleaning old builds and cache..."
+cd "$PROJECT_DIR"
+rm -rf build* .fprime-cache
+
+# -------------------------
+# Ensure deployment FPP exists
+# -------------------------
+mkdir -p "$DEPLOY_DIR"
+cat > "$DEPLOY_FPP" << EOF
+deployment Stage9MotorBridgeDeployment {
+    platform = "linux"
+    topology = Stage9MotorBridgeTopology
+}
+EOF
+echo "✅ Deployment FPP created/fixed"
+
+# -------------------------
+# Ensure topology FPP exists
+# -------------------------
+mkdir -p "$TOPO_DIR"
+if [ ! -f "$TOPO_FILE" ]; then
+    cat > "$TOPO_FILE" << EOF
+Topology Stage9MotorBridgeTopology {
+    # Components go here
+}
+EOF
+    echo "✅ Topology FPP created"
+else
+    echo "✅ Topology FPP exists"
+fi
+
+# -------------------------
+# Ensure Linux toolchain exists
+# -------------------------
+cd "$TOOLCHAIN_DIR"
+if [ ! -f linux.cmake ]; then
+    cp generic.cmake linux.cmake
+    echo "✅ Linux toolchain created from generic.cmake"
+else
+    echo "✅ Linux toolchain exists"
+fi
+
+# -------------------------
+# Generate deployment
+# -------------------------
+cd "$PROJECT_DIR"
+echo "⚙️ Generating Stage9MotorBridgeDeployment..."
+if fprime-util generate Stage9MotorBridgeDeployment --platform linux; then
+    echo "✅ Deployment generated successfully"
+else
+    echo "❌ Deployment generation FAILED! Check FPP/toolchain"
+    exit 1
+fi
+
+# -------------------------
+# Build deployment
+# -------------------------
+echo "⚙️ Building Stage9MotorBridgeDeployment..."
+if fprime-util build Stage9MotorBridgeDeployment; then
+    echo "✅ Deployment built successfully"
+else
+    echo "❌ Deployment build FAILED!"
+    exit 1
+fi
+
+# -------------------------
+# Verify build output
+# -------------------------
+BUILD_DIR="$PROJECT_DIR/build-fprime-automatic-Stage9MotorBridgeDeployment"
+if [ -d "$BUILD_DIR" ]; then
+    echo "✅ Build directory exists: $BUILD_DIR"
+else
+    echo "❌ Build directory missing! Something went wrong."
+    exit 1
+fi
+
+# -------------------------
+# Launch GDS
+# -------------------------
+echo "🚀 Launching GDS..."
+fprime-gds --app "$DEPLOY_DIR/Stage9MotorBridgeDeployment.fpp"
