@@ -1,0 +1,1 @@
+# Prescan-safe component
