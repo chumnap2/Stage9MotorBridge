@@ -1,0 +1,13 @@
+# F Prime build caches
+build-fprime-automatic-*/
+workspace/
+
+# Python venv
+fprime-venv-*/
+
+# OS and editor temp files
+*.swp
+*.swo
+.DS_Store
+*.pyc
+__pycache__/
