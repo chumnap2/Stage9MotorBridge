@@ -1,8 +1,10 @@
-cmake_minimum_required(VERSION 3.13)
-project(Stage9Project)
+cmake_minimum_required(VERSION 3.16)
+project(Stage9MotorBridge C CXX)
 
-set(FPRIME_FRAMEWORK_PATH "/home/chumnap/fprime-motorbridge/fprime-3.1.0")
-include(${FPRIME_FRAMEWORK_PATH}/cmake/FPrime.cmake)
+set(FPRIME_PROJECT_ROOT "$ENV{FPRIME_HOME}")
+set(FPRIME_FRAMEWORK_ROOT "$ENV{FPRIME_HOME}")
 
-# Only deployments define build roots in F´ v3.x
-add_fprime_subdirectory("/home/chumnap/fprime-motorbridge/Projects/Stage9Project/Deployments/Stage9MotorBridgeDeployment")
+include(${FPRIME_FRAMEWORK_ROOT}/cmake/FPrime.cmake)
+
+# Do NOT include deployments automatically — restore_build.sh will generate them
+message(STATUS "Top-level project loaded. Use restore_build.sh to generate deployment.")

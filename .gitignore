@@ -1,15 +1,14 @@
-# Python virtual env
-fprime-venv-310/
-
-# F´ build folders
+# F´ build directories
 build-fprime-automatic-*
+build-artifacts/
 
-# Logs
-*.log
+# F´ deployment logs
+Deployments/*/logs/
 
-# Editor / OS files
-*.swp
-*.swo
+# Python venv
+fprime-venv/
+
+# Temporary backup files
+*~
 *.bak
-*.tmp
-.DS_Store
+
