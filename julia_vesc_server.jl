@@ -1,113 +1,128 @@
 #!/usr/bin/env julia
 using Sockets
 using Dates
-using Printf
 
-# -------------------------
+# -----------------------------
 # Configuration
-# -------------------------
-PORT = 12345
-PROJECT_ROOT = "/home/chumnap/fprime-motorbridge/Projects/Stage9Project"
-DEPLOYMENT_NAME = "Stage9MotorBridgeDeployment"
-BUILD_DIR = joinpath(PROJECT_ROOT, "build-fprime-automatic-$DEPLOYMENT_NAME")
-DEPLOYMENT_BIN = joinpath(BUILD_DIR, "bin", DEPLOYMENT_NAME)
-DEPLOYMENT_YAML = joinpath(BUILD_DIR, "$DEPLOYMENT_NAME.yaml")
+# -----------------------------
+const HOST = ip"127.0.0.1"
+const PORT = 12345
+const MAX_SAFE_DUTY = 0.5
 
-# -------------------------
-# Launch F´ GDS (YAML preferred, binary fallback)
-# -------------------------
-println("🚀 Launching F´ GDS...")
-
-gds_launched = false
-
-if isfile(DEPLOYMENT_YAML)
-    println("ℹ️ Found deployment YAML: $DEPLOYMENT_YAML")
-    @async try
-        run(`fprime-gds --app $DEPLOYMENT_YAML`)
-        gds_launched = true
-    catch e
-        println("❌ Failed to launch GDS with YAML: $e")
-    end
-elseif isfile(DEPLOYMENT_BIN)
-    println("ℹ️ Found deployment binary: $DEPLOYMENT_BIN")
-    @async try
-        run(`fprime-gds --root $PROJECT_ROOT --app $DEPLOYMENT_NAME`)
-        gds_launched = true
-    catch e
-        println("❌ Failed to launch GDS with binary: $e")
-    end
-else
-    println("⚠️ Neither deployment YAML nor binary found in $BUILD_DIR")
-    println("   Run: fprime-util generate $DEPLOYMENT_NAME && fprime-util build $DEPLOYMENT_NAME")
-end
-
-println("🎉 GDS launch task started (may fail silently if missing build)")
-
-# -------------------------
-# Start TCP server safely
-# -------------------------
-server = try
-    listen(PORT)
-catch e
-    println("❌ Failed to bind TCP port $PORT: $e")
-    println("   Check for existing process: lsof -i :$PORT")
-    exit(1)
-end
-
-println("🟢 Julia VESC server listening on port $PORT")
-
-# Accept client
-sock = accept(server)
-println("🔌 Client connected!")
-
-# -------------------------
+# -----------------------------
 # Motor state
-# -------------------------
-rpm     = 0
-duty    = 0.0
-current = 0.0
-volt    = 24.0
-fault   = 0
+# -----------------------------
+global motor_enabled = false
+global duty = 0.0
+global rpm = 0
+global current = 0.0
+global volt = 24.0
+global fault = 0
+global sock::Union{TCPSocket,Nothing} = nothing
 
-# -------------------------
-# Main loop (20 Hz)
-# -------------------------
-while true
+# -----------------------------
+# Safe Python motor spin
+# -----------------------------
+function set_motor_safe(duty::Float64)
+    duty = clamp(duty, 0.0, MAX_SAFE_DUTY)  # safety clamp
     try
-        # Read command if available
-        if bytesavailable(sock) > 0
-            cmd = strip(readline(sock))
-            println("📥 CMD received: $cmd")
+        run(`python3 motor_spin_minimal_nov20.py $duty`)
+    catch e
+        println("⚠️ Failed to run Python motor spin: $e")
+    end
+end
 
-            if startswith(cmd, "duty=")
-                duty = try parse(Float64, split(cmd, "=")[2]) catch println("⚠️ Invalid duty"); duty end
-            elseif startswith(cmd, "current=")
-                current = try parse(Float64, split(cmd, "=")[2]) catch println("⚠️ Invalid current"); current end
-            elseif cmd == "stop"
-                duty = 0.0
-                current = 0.0
-            elseif cmd == "fault"
-                fault = 1
-            elseif cmd == "clear_fault"
-                fault = 0
-            else
-                println("⚠️ Unknown command: $cmd")
+# -----------------------------
+# TCP Server
+# -----------------------------
+server = listen(HOST, PORT)
+println("🟢 Server listening on $HOST:$PORT")
+
+# -----------------------------
+# Command handler
+# -----------------------------
+function handle_command(cmd::String)
+    cmd_clean = strip(lowercase(cmd))
+
+    if cmd_clean == "enable"
+        global motor_enabled = true
+        println("✅ Motor ENABLE")
+        set_motor_safe(duty)
+
+    elseif cmd_clean == "disable"
+        global motor_enabled = false
+        global duty = 0.0
+        println("⚠️ Motor DISABLE")
+        set_motor_safe(0.0)
+
+    elseif startswith(cmd_clean, "set_duty") || startswith(cmd_clean, "duty")
+        parts = split(cmd_clean, r"[= ]", limit=2)
+        if length(parts) == 2
+            val = try parse(Float64, parts[2]) catch e
+                println("⚠️ Invalid duty: $(parts[2])")
+                return
             end
+            global duty = motor_enabled ? clamp(val, 0.0, MAX_SAFE_DUTY) : 0.0
+            println("🎚️ Duty set to $duty")
+            set_motor_safe(duty)
+        else
+            println("⚠️ Malformed duty command: $cmd_clean")
         end
 
-        # Simple proportional RPM simulation
-        rpm = round(Int, duty * 1000)
+    elseif cmd_clean == "stop"
+        global duty = 0.0
+        println("⏹️ Motor STOPPED")
+        set_motor_safe(0.0)
 
-        # Send telemetry to client (quiet, no warnings)
-        println(sock, @sprintf("rpm=%d duty=%.3f current=%.3f volt=%.1f fault=%d time=%s",
-                               rpm, duty, current, volt, fault, Dates.now()))
+    elseif cmd_clean == "fault"
+        global fault = 1
+        println("⚠️ Fault triggered")
+
+    elseif cmd_clean == "clear_fault"
+        global fault = 0
+        println("✅ Fault cleared")
+
+    else
+        println("⚠️ Unknown command: $cmd_clean")
+    end
+end
+
+# -----------------------------
+# Main loop
+# -----------------------------
+while true
+    # Accept client if none
+    if sock === nothing
+        println("⏳ Waiting for client connection...")
+        try
+            global sock = accept(server)
+            println("🔌 Client connected")
+        catch e
+            println("❌ Accept failed: $e")
+            sleep(1)
+            continue
+        end
+    end
+
+    try
+        if bytesavailable(sock) > 0
+            cmd = strip(readline(sock))
+            println("📥 CMD: $cmd")
+            handle_command(cmd)
+        end
+
+        # Update simulated RPM based on duty
+        global rpm = round(Int, duty * 1000)
+
+        # Send telemetry
+        println(sock,
+            "rpm=$rpm duty=$duty current=$current volt=$volt fault=$fault time=$(now())"
+        )
 
         sleep(0.05)  # 20 Hz
     catch e
-        println("❌ Client disconnected or error: $e")
+        println("❌ Client disconnected: $e")
         close(sock)
-        println("🔄 Waiting for client to reconnect...")
-        sock = accept(server)
-        println("🔌 Client reconnected!")
+        global sock = nothing
     end
 end
