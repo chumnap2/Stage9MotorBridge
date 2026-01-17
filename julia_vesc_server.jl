@@ -1,97 +1,52 @@
 #!/usr/bin/env julia
 using Sockets
 using Dates
+#using Base.Processes  # for run / pipeline
 
-# -----------------------------
+# =============================
 # Configuration
-# -----------------------------
+# =============================
 const HOST = ip"127.0.0.1"
 const PORT = 12345
-const MAX_SAFE_DUTY = 0.5
+const MAX_SAFE_DUTY = 0.2   # HARD SAFETY LIMIT
+const TELEMETRY_HZ = 20
 
-# -----------------------------
-# Motor state
-# -----------------------------
-global motor_enabled = false
-global duty = 0.0
-global rpm = 0
-global current = 0.0
-global volt = 24.0
-global fault = 0
+# =============================
+# Safety state (INTENT only)
+# =============================
+global armed = false
+global requested_duty = 0.0
+
+# =============================
+# TCP socket
+# =============================
 global sock::Union{TCPSocket,Nothing} = nothing
 
-# -----------------------------
-# Safe Python motor spin
-# -----------------------------
+# =============================
+# Safe Python motor call
+# =============================
 function set_motor_safe(duty::Float64)
-    duty = clamp(duty, 0.0, MAX_SAFE_DUTY)  # safety clamp
+    duty = clamp(duty, 0.0, MAX_SAFE_DUTY)
     try
         run(`python3 motor_spin_minimal_nov20.py $duty`)
     catch e
-        println("⚠️ Failed to run Python motor spin: $e")
+        println("⚠️ Python motor call failed: $e")
     end
 end
 
-# -----------------------------
-# TCP Server
-# -----------------------------
+# =============================
+# Start TCP server
+# =============================
 server = listen(HOST, PORT)
-println("🟢 Server listening on $HOST:$PORT")
+println("🟢 Julia VESC TCP server listening on $HOST:$PORT")
 
-# -----------------------------
-# Command handler
-# -----------------------------
-function handle_command(cmd::String)
-    cmd_clean = strip(lowercase(cmd))
-
-    if cmd_clean == "enable"
-        global motor_enabled = true
-        println("✅ Motor ENABLE")
-        set_motor_safe(duty)
-
-    elseif cmd_clean == "disable"
-        global motor_enabled = false
-        global duty = 0.0
-        println("⚠️ Motor DISABLE")
-        set_motor_safe(0.0)
-
-    elseif startswith(cmd_clean, "set_duty") || startswith(cmd_clean, "duty")
-        parts = split(cmd_clean, r"[= ]", limit=2)
-        if length(parts) == 2
-            val = try parse(Float64, parts[2]) catch e
-                println("⚠️ Invalid duty: $(parts[2])")
-                return
-            end
-            global duty = motor_enabled ? clamp(val, 0.0, MAX_SAFE_DUTY) : 0.0
-            println("🎚️ Duty set to $duty")
-            set_motor_safe(duty)
-        else
-            println("⚠️ Malformed duty command: $cmd_clean")
-        end
-
-    elseif cmd_clean == "stop"
-        global duty = 0.0
-        println("⏹️ Motor STOPPED")
-        set_motor_safe(0.0)
-
-    elseif cmd_clean == "fault"
-        global fault = 1
-        println("⚠️ Fault triggered")
-
-    elseif cmd_clean == "clear_fault"
-        global fault = 0
-        println("✅ Fault cleared")
-
-    else
-        println("⚠️ Unknown command: $cmd_clean")
-    end
-end
-
-# -----------------------------
+# =============================
 # Main loop
-# -----------------------------
+# =============================
 while true
+    # -------------------------
     # Accept client if none
+    # -------------------------
     if sock === nothing
         println("⏳ Waiting for client connection...")
         try
@@ -104,25 +59,80 @@ while true
         end
     end
 
+    # -------------------------
+    # Try reading command (blocking)
+    # -------------------------
     try
-        if bytesavailable(sock) > 0
-            cmd = strip(readline(sock))
-            println("📥 CMD: $cmd")
-            handle_command(cmd)
+        cmd = strip(lowercase(readline(sock)))  # BLOCK until line arrives
+        println("[SERVER] CMD: $cmd")
+
+        if cmd == "enable"
+            println("[SERVER] enable received (idle)")
+
+        elseif cmd == "arm"
+            global armed = true
+            if requested_duty == 0.0
+                global requested_duty = 0.05   # small initial duty when arming
+            end
+            println("[SERVER] ARMED → starting duty=$requested_duty")
+
+        elseif cmd == "disarm"
+            global armed = false
+            global requested_duty = 0.0
+            set_motor_safe(0.0)   # 🔴 IMMEDIATE HARD STOP
+            println("[SERVER] DISARMED → duty forced to 0")
+
+        elseif startswith(cmd, "duty")
+            parts = split(cmd)
+            if length(parts) == 2
+                val = try parse(Float64, parts[2]) catch
+                    println("[SERVER] invalid duty value")
+                    continue
+                end
+                global requested_duty = clamp(val, 0.0, MAX_SAFE_DUTY)
+                println("[SERVER] duty requested = $requested_duty")
+            else
+                println("[SERVER] malformed duty command")
+            end
+
+        else
+            println("[SERVER] unknown command")
         end
 
-        # Update simulated RPM based on duty
-        global rpm = round(Int, duty * 1000)
-
-        # Send telemetry
-        println(sock,
-            "rpm=$rpm duty=$duty current=$current volt=$volt fault=$fault time=$(now())"
-        )
-
-        sleep(0.05)  # 20 Hz
     catch e
+        # -------------------------
+        # Client disconnected or EOF
+        # -------------------------
         println("❌ Client disconnected: $e")
-        close(sock)
+        global armed = false
+        global requested_duty = 0.0
+        set_motor_safe(0.0)  # 🔴 FAIL-SAFE
+
+        try close(sock) catch end
         global sock = nothing
+        sleep(1)
+        continue
     end
+
+    # -------------------------
+    # APPLY DUTY (ONLY HERE)
+    # -------------------------
+    if armed
+        set_motor_safe(requested_duty)
+    else
+        set_motor_safe(0.0)
+    end
+
+    # -------------------------
+    # Telemetry
+    # -------------------------
+    if sock !== nothing
+        try
+            println(sock, "armed=$armed duty=$requested_duty time=$(now())")
+        catch
+            # Ignore write errors; disconnect will handle stop
+        end
+    end
+
+    sleep(1/TELEMETRY_HZ)  # 20 Hz
 end
