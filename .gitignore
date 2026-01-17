@@ -1,14 +1,23 @@
-# F´ build directories
+# Build outputs
 build-fprime-automatic-*
 build-artifacts/
 
-# F´ deployment logs
-Deployments/*/logs/
-
-# Python venv
+# Python
 fprime-venv/
+__pycache__/
+*.pyc
 
-# Temporary backup files
+# Generated deployment files
+Deployments/*/CMakeLists.txt
+Deployments/*/logs/
+Deployments/*/generated/
+
+# CMake
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+
+# Editor junk
 *~
 *.bak
-

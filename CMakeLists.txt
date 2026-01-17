@@ -1,10 +1,17 @@
 cmake_minimum_required(VERSION 3.16)
 project(Stage9MotorBridge C CXX)
 
-set(FPRIME_PROJECT_ROOT "$ENV{FPRIME_HOME}")
+# Project root
+set(FPRIME_PROJECT_ROOT ${CMAKE_CURRENT_LIST_DIR})
+
+# F´ framework location (exported by env.sh)
 set(FPRIME_FRAMEWORK_ROOT "$ENV{FPRIME_HOME}")
 
 include(${FPRIME_FRAMEWORK_ROOT}/cmake/FPrime.cmake)
 
-# Do NOT include deployments automatically — restore_build.sh will generate them
-message(STATUS "Top-level project loaded. Use restore_build.sh to generate deployment.")
+# Only include deployments when they exist (generated)
+if(EXISTS "${CMAKE_CURRENT_LIST_DIR}/Deployments/Stage9MotorBridgeDeployment/CMakeLists.txt")
+  add_fprime_subdirectory(
+    ${CMAKE_CURRENT_LIST_DIR}/Deployments/Stage9MotorBridgeDeployment
+  )
+endif()

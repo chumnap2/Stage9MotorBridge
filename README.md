@@ -19,3 +19,9 @@ This repository contains:
    julia stage9_setup.jl
    ```
 
+git clone <repo> Stage9MotorBridge
+cd Stage9MotorBridge
+source env.sh
+./restore_build.sh
+o
+
